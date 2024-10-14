@@ -356,9 +356,8 @@ pub fn fetchResults2(allocator: Allocator, mysql: *c.MYSQL, query: [*c]const u8)
     while (true) {
         const result = c.mysql_store_result(mysql);
 
-        const resultSet = try r.ResultSet.init(allocator);
-
         if (result != null) {
+            const resultSet = try r.ResultSet.init(allocator);
             const numFields = c.mysql_num_fields(result);
 
             while (true) {

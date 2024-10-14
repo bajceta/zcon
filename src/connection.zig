@@ -38,9 +38,8 @@ pub const Connection = struct {
 
     // Execute query. Returns result in json format
     pub fn executeQuery(self: *Self, query: [*c]const u8, parameters: anytype) !*r.Result {
-        const ms = self.mysql;
         self.dirty = true;
-        return try lib.executeQuery(self.allocator, ms, query, parameters);
+        return try lib.executeQuery(self.allocator, self.mysql, query, parameters);
     }
 
     pub fn close(self: *Self) void {
@@ -163,7 +162,19 @@ test "mem leak" {
 }
 
 test "connect" {
-    const config: ConnectionConfig = .{ .databaseName = "", .host = "172.17.0.1", .password = "my-secret-pw", .username = "root" };
-    const p = try Connection.newConnection(std.testing.allocator, config);
+    const p = try Connection.newConnection(std.testing.allocator, lib.testConfig);
+    p.close();
+}
+
+test "create db" {
+    const p = try Connection.newConnection(std.testing.allocator, lib.testConfig);
+    const res = p.executeQuery("CREATE DATABASE IF NOT EXISTS testdb", .{});
+    if (res) |value| {
+        std.debug.print("result: {} \n", .{value});
+        value.deinit();
+    } else |err| {
+        std.debug.print("err: {} \n", .{err});
+        std.debug.print("err: {s} \n", .{p.errorMessage()});
+    }
     p.close();
 }

@@ -8,21 +8,21 @@ const Config = lib.ConnectionConfig;
 const c = lib.c;
 const Conn = @import("connection.zig").Connection;
 
-
 pub const ConnectionPool = struct {
     const Self = @This();
 
-    firstConn :*Conn,
-    lastConn :*Conn,
+    firstConn: *Conn,
+    lastConn: *Conn,
     size: usize,
     allocator: Allocator,
     busyConnections: usize,
     poolMutex: Threads.Mutex,
     poolCondition: Threads.Condition,
+    pool: [50]?*Conn = undefined,
 
-    pub fn init(allocator :Allocator,config: Config,size :usize) !*Self {
+    pub fn init(allocator: Allocator, config: Config, size: usize) !*Self {
         var checkedSize: usize = 2;
-        if(size > checkedSize){
+        if (size > checkedSize) {
             checkedSize = size;
         }
         const ptmp = try allocator.create(Self);
@@ -30,13 +30,15 @@ pub const ConnectionPool = struct {
         ptmp.firstConn = try Conn.newConnection(allocator, config);
         ptmp.firstConn.pooled = true;
         ptmp.lastConn = ptmp.firstConn;
-        ptmp.allocator = allocator;
 
-        for(0..checkedSize-1)|_|{
+        ptmp.allocator = allocator;
+        for (0..checkedSize - 1) |i| {
+            ptmp.pool[i] = ptmp.lastConn;
             ptmp.lastConn.next = try Conn.newConnection(allocator, config);
             ptmp.lastConn.next.?.pooled = true;
             ptmp.lastConn = ptmp.lastConn.next.?;
         }
+        ptmp.pool[checkedSize - 1] = ptmp.lastConn;
 
         ptmp.size = checkedSize;
         ptmp.lastConn.next = null;
@@ -46,14 +48,13 @@ pub const ConnectionPool = struct {
         return ptmp;
     }
 
-    pub fn deInit(self :*Self) void {
-        
-        var ptmp: ?*Conn = self.firstConn;
-        for(0..self.size)|_|{
-            const conn = ptmp;
-            ptmp = ptmp.?.next;
-            conn.?.pooled = false;
-            conn.?.close();
+    pub fn deInit(self: *Self) void {
+        for (0..self.size) |i| {
+            const conn = self.pool[i];
+            if (conn != null) {
+                conn.?.pooled = false;
+                conn.?.close();
+            }
         }
 
         self.allocator.destroy(self);
@@ -63,13 +64,13 @@ pub const ConnectionPool = struct {
         self.poolMutex.lock();
         defer self.poolMutex.unlock();
         // wait is all busy
-        while(self.busyConnections == self.size){
+        while (self.busyConnections == self.size) {
             self.poolCondition.wait(&(self.poolMutex));
         }
 
         var currConn: ?*Conn = self.firstConn;
-        for(0..self.size)|_|{
-            if(currConn.?.idle){
+        for (0..self.size) |_| {
+            if (currConn.?.idle) {
                 self.busyConnections += 1;
                 currConn.?.idle = false;
                 break;
@@ -78,7 +79,7 @@ pub const ConnectionPool = struct {
             currConn = currConn.?.next orelse null;
         }
 
-        if(currConn == null){
+        if (currConn == null) {
             unreachable;
         }
 
@@ -106,12 +107,10 @@ pub const ConnectionPool = struct {
 };
 
 test "mem leak" {
-     const config: Config = .{ .databaseName = "events", .host = "localhost", .password = "1234Victor", .username = "vic" };
-     const p = try ConnectionPool.init(std.testing.allocator, config, 5);
-     p.deInit();
+    const p = try ConnectionPool.init(std.testing.allocator, lib.testConfig, 5);
+    p.deInit();
 }
 
-const testConfig: Config = .{ .databaseName = "events", .host = "localhost", .password = "1234Victor", .username = "vic" };
 var testPool: *ConnectionPool = undefined;
 
 pub fn testFn() void {
@@ -122,33 +121,31 @@ pub fn testFn() void {
 
     std.debug.print("Thread [{}] Dropping connection \n", .{id});
     testPool.dropConnection(conn);
-    
 }
 
 test "drop" {
-    const config: Config = .{ .databaseName = "events", .host = "localhost", .password = "1234Victor", .username = "vic" };
-    const p = try ConnectionPool.init(std.testing.allocator, config, 2);
+    const p = try ConnectionPool.init(std.testing.allocator, lib.testConfig, 2);
 
-     try expect(p.size == 2);
-     const conn1 = p.getConnection();
-     _ = conn1;
-     const conn2 = p.getConnection();
+    try expect(p.size == 2);
+    const conn1 = p.getConnection();
+    _ = conn1;
+    const conn2 = p.getConnection();
 
-     try expect(conn2.idle == false);
-     try expect(p.busyConnections == 2);
+    try expect(conn2.idle == false);
+    try expect(p.busyConnections == 2);
 
-     p.dropConnection(conn2);
-     try expect(conn2.idle);
-     try expect(p.busyConnections == 1);
+    p.dropConnection(conn2);
+    try expect(conn2.idle);
+    try expect(p.busyConnections == 1);
 
-     const conn3 = p.getConnection();
-     _ = conn3;
+    const conn3 = p.getConnection();
+    _ = conn3;
 
-     p.deInit();
+    p.deInit();
 }
 
 test "all busy" {
-    testPool = try ConnectionPool.init(std.testing.allocator, testConfig, 1);
+    testPool = try ConnectionPool.init(std.testing.allocator, lib.testConfig, 1);
     defer testPool.deInit();
 
     const t1 = try Threads.spawn(.{}, testFn, .{});
@@ -161,6 +158,6 @@ test "all busy" {
 }
 
 test "zero" {
-    testPool = try ConnectionPool.init(std.testing.allocator, testConfig, 0);
+    testPool = try ConnectionPool.init(std.testing.allocator, lib.testConfig, 0);
     defer testPool.deInit();
 }

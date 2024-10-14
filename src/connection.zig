@@ -40,11 +40,11 @@ pub const Connection = struct {
     pub fn executeQuery(self: *Self, query: [*c]const u8, parameters: anytype) !*r.Result {
         const ms = self.mysql;
         self.dirty = true;
-        return try lib.executeQuery(self.allocator,ms, query, parameters);
+        return try lib.executeQuery(self.allocator, ms, query, parameters);
     }
 
     pub fn close(self: *Self) void {
-        if(self.pooled){
+        if (self.pooled) {
             std.debug.panic("Attempt to close a pooled connection\n", .{});
         }
         c.mysql_close(self.mysql);
@@ -54,7 +54,7 @@ pub const Connection = struct {
     // Create prepared statement
     pub fn prepare(self: *Self, query: [*c]const u8) !*Statement {
         //if(self.dirty) return error.connectionDirty;
-        return try Statement.init(self.allocator,self.mysql, query);
+        return try Statement.init(self.allocator, self.mysql, query);
     }
 
     /// Returns the number of rows changed, deleted, or
@@ -67,14 +67,15 @@ pub const Connection = struct {
     /// Sets autocommit mode on if mode is true, off if mode is false.
     /// returns true for success
     pub fn setAutoCommitMode(self: *Self, mode: bool) bool {
-        return c.mysql_autocommit(self.mysql, mode);
+        const cmode: u8 = @intFromBool(mode);
+        return c.mysql_autocommit(self.mysql, cmode) != 0;
     }
 
     /// Changes the user and causes the database specified by db to become the default (current) database
-    /// on the connection specified. 
+    /// on the connection specified.
     /// Zero for success. Nonzero if an error occurred.
     pub fn changeUser(self: *Self, user: lib.User) bool {
-        if(c.mysql_change_user(self.mysql, user.username, user.password, user.database orelse null) == false){
+        if (c.mysql_change_user(self.mysql, user.username, user.password, user.database orelse null) == 0) {
             return true;
         }
 
@@ -92,15 +93,15 @@ pub const Connection = struct {
     }
 
     /// Returns the error code for the most recently
-    /// invoked API function that can succeed or fail. 
+    /// invoked API function that can succeed or fail.
     pub fn errorCode(self: *Self) u16 {
         return c.mysql_errno(self.mysql);
     }
 
     /// Returns a null-terminated string containing
-    /// the error message for the most recently invoked API function that failed. 
+    /// the error message for the most recently invoked API function that failed.
     pub fn errorMessage(self: *Self) [*c]const u8 {
-        return c.mysql_errno(self.mysql);
+        return c.mysql_error(self.mysql);
     }
 
     /// Returns the number of columns for the most recent query on the connection.
@@ -115,7 +116,7 @@ pub const Connection = struct {
     }
 
     pub fn ping(self: *Self) bool {
-        if(c.mysql_ping(self.mysql) == 0){
+        if (c.mysql_ping(self.mysql) == 0) {
             return true;
         }
 
@@ -124,7 +125,7 @@ pub const Connection = struct {
 
     /// Resets the connection to clear the session state.
     pub fn reset(self: *Self) bool {
-        if(c.mysql_reset_connection(self.mysql) == 0){
+        if (c.mysql_reset_connection(self.mysql) == 0) {
             return true;
         }
         return false;
@@ -132,7 +133,7 @@ pub const Connection = struct {
 
     /// Rolls back the current transaction.
     pub fn rollBack(self: *Self) bool {
-        if(c.mysql_rollback(self.mysql)){
+        if (c.mysql_rollback(self.mysql) != 0) {
             return false;
         }
         return true;
@@ -140,7 +141,7 @@ pub const Connection = struct {
 
     /// Causes the database specified by db to become the default (current) database on the connection
     pub fn selectDB(self: *Self, db: [*c]const u8) void {
-        if(c.mysql_select_db(self.mysql, db) == 0){
+        if (c.mysql_select_db(self.mysql, db) == 0) {
             return true;
         }
         return false;
@@ -148,10 +149,9 @@ pub const Connection = struct {
 
     /// Returns a null-terminated string containing the SQLSTATE error code for the most recently executed
     /// SQL statement. The error code consists of five characters. '00000' means “no error.”
-    pub fn sqlState(self: *Self) [*c] const u8 {
+    pub fn sqlState(self: *Self) [*c]const u8 {
         return c.mysql_sqlstate(self.mysql);
     }
-
 };
 
 test "mem leak" {
@@ -160,4 +160,10 @@ test "mem leak" {
     //const res = try conn.executeQuery("select * from users where name = ?", .{"karanja"});
     //defer std.testing.allocator.free(res);
     //defer conn.close();
+}
+
+test "connect" {
+    const config: ConnectionConfig = .{ .databaseName = "", .host = "172.17.0.1", .password = "my-secret-pw", .username = "root" };
+    const p = try Connection.newConnection(std.testing.allocator, config);
+    p.close();
 }

@@ -22,17 +22,14 @@ pub const CustomErr = error{
     connectionDirty,
 };
 
-pub const Options = struct {
-
-};
-
+pub const Options = struct {};
 
 pub const User = struct {
     username: [*c]const u8,
     password: [*c]const u8,
 
     /// Assign null if you do not want to have a default database.
-    database: ?[*c]const u8
+    database: ?[*c]const u8,
 };
 
 pub const ConnectionConfig = struct {
@@ -42,20 +39,25 @@ pub const ConnectionConfig = struct {
     databaseName: [*c]const u8,
 };
 
+pub const testConfig = ConnectionConfig{
+    .host = "172.17.0.1",
+    .username = "root",
+    .password = "my-secret-pw",
+    .databaseName = "",
+};
+
 //Execute query, results in json
 pub fn executeQuery(allocator: Allocator, mysql: *c.MYSQL, query: [*c]const u8, parameters: anytype) !*r.Result {
-
-    if(parameters.len == 0){
+    if (parameters.len == 0) {
         return try fetchResults2(allocator, mysql, query);
     }
-
 
     // create statement
     const statement = try prepareStatement(mysql, query);
     defer {
         _ = c.mysql_stmt_close(@ptrCast(statement));
     }
-    
+
     //fetch resulst
     if (fetchResults(allocator, statement, parameters)) |res| {
         return res;
@@ -69,21 +71,24 @@ pub fn executeQuery(allocator: Allocator, mysql: *c.MYSQL, query: [*c]const u8, 
             },
         }
     }
-    
-    _= c.mysql_stmt_close(statement);
+
+    _ = c.mysql_stmt_close(statement);
 }
 
 //create C connection struct
 pub fn initConnection(config: ConnectionConfig) CustomErr!*c.MYSQL {
+    var mysql: ?*c.MYSQL = null;
     var conn: ?*c.MYSQL = null;
-    conn = c.mysql_init(null);
-    if (conn) |_| {} else {
+    mysql = c.mysql_init(null);
+    if (mysql) |_| {} else {
         return CustomErr.sqlErr;
     }
-    conn = c.mysql_real_connect(conn, config.host, config.username, config.password, config.databaseName, c.MYSQL_PORT, null, c.CLIENT_MULTI_STATEMENTS);
+    conn = c.mysql_real_connect(mysql, config.host, config.username, config.password, config.databaseName, c.MYSQL_PORT, null, c.CLIENT_MULTI_STATEMENTS);
     if (conn) |ptr| {
         return ptr;
     } else {
+        const err = c.mysql_error(mysql);
+        std.debug.print("Mysql Error failed to connect: {s}\n", .{err});
         return CustomErr.sqlErr;
     }
 }
@@ -340,7 +345,6 @@ pub fn fetchResults(allocator: Allocator, statement: *c.MYSQL_STMT, parameters: 
 }
 
 pub fn fetchResults2(allocator: Allocator, mysql: *c.MYSQL, query: [*c]const u8) !*r.Result {
-
     var status = c.mysql_query(mysql, query);
 
     if (status != @as(c_int, 0)) {
@@ -350,18 +354,15 @@ pub fn fetchResults2(allocator: Allocator, mysql: *c.MYSQL, query: [*c]const u8)
     const res = try r.Result.init(allocator);
 
     while (true) {
-
         const result = c.mysql_store_result(mysql);
 
         const resultSet = try r.ResultSet.init(allocator);
 
         if (result != null) {
-
             const numFields = c.mysql_num_fields(result);
 
             while (true) {
                 const row = c.mysql_fetch_row(result);
-
 
                 if (row != null) {
                     const rw = try r.Row.init(allocator, numFields);
@@ -371,24 +372,22 @@ pub fn fetchResults2(allocator: Allocator, mysql: *c.MYSQL, query: [*c]const u8)
                     rw.columns = try Bufflist.init(allocator, numFields);
 
                     for (0..numFields) |i| {
-                        if(row[i] != null) {
+                        if (row[i] != null) {
                             try rw.columns.?.initAndSetBuffer(row[i][0..lengths[i]], i);
                         } else {
                             try rw.columns.?.initAndSetBuffer("", i);
-                        }   
+                        }
                     }
 
                     resultSet.insertRow(rw);
-
-                }else{ break; }
-
+                } else {
+                    break;
+                }
             }
 
             res.insert(resultSet);
             c.mysql_free_result(result);
-
-        } else
-        {
+        } else {
             if (c.mysql_field_count(mysql) == 0) {
                 res.affectedRows += c.mysql_affected_rows(mysql);
             } else {
@@ -397,7 +396,7 @@ pub fn fetchResults2(allocator: Allocator, mysql: *c.MYSQL, query: [*c]const u8)
                 };
             }
         }
-        
+
         status = c.mysql_next_result(mysql);
 
         if (status != 0) {

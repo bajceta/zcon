@@ -6,6 +6,7 @@ const Statement = @import("statement.zig").Statement;
 const r = @import("result.zig");
 
 const c = lib.c;
+const assert = std.debug.assert;
 
 //Single DB connection
 pub const Connection = struct {
@@ -139,7 +140,7 @@ pub const Connection = struct {
     }
 
     /// Causes the database specified by db to become the default (current) database on the connection
-    pub fn selectDB(self: *Self, db: [*c]const u8) void {
+    pub fn selectDB(self: *Self, db: [*c]const u8) bool {
         if (c.mysql_select_db(self.mysql, db) == 0) {
             return true;
         }
@@ -166,6 +167,7 @@ test "connect" {
     p.close();
 }
 
+const dbname = "testdb";
 test "create db" {
     const p = try Connection.newConnection(std.testing.allocator, lib.testConfig);
     const res = p.executeQuery("CREATE DATABASE IF NOT EXISTS testdb", .{});
@@ -175,6 +177,105 @@ test "create db" {
     } else |err| {
         std.debug.print("err: {} \n", .{err});
         std.debug.print("err: {s} \n", .{p.errorMessage()});
+    }
+    p.close();
+}
+
+test "use db" {
+    const p = try Connection.newConnection(std.testing.allocator, lib.testConfig);
+    const selected = p.selectDB(dbname);
+    assert(selected);
+    const res = p.executeQuery("SELECT DATABASE()", .{});
+    if (res) |value| {
+        const resName = value.firstSet.?.firstRow.?.columns.?.get(0).?;
+        assert(std.mem.eql(u8, resName, dbname));
+        value.deinit();
+    } else |err| {
+        std.debug.print("err: {} \n", .{err});
+        std.debug.print("err: {s} \n", .{p.errorMessage()});
+        assert(false);
+    }
+    p.close();
+}
+
+test "drop table if exists" {
+    const p = try Connection.newConnection(std.testing.allocator, lib.testConfig);
+    _ = p.selectDB(dbname);
+    const query =
+        \\DROP TABLE IF EXISTS test_user_table;
+    ;
+    const res = p.executeQuery(query, .{});
+    if (res) |value| {
+        std.debug.print("result: {} \n", .{value});
+        value.deinit();
+    } else |err| {
+        std.debug.print("err: {} \n", .{err});
+        std.debug.print("err: {s} \n", .{p.errorMessage()});
+        assert(false);
+    }
+    p.close();
+}
+test "create table" {
+    const p = try Connection.newConnection(std.testing.allocator, lib.testConfig);
+    _ = p.selectDB(dbname);
+    const query =
+        \\CREATE TABLE IF NOT EXISTS test_user_table (
+        \\    id INT AUTO_INCREMENT PRIMARY KEY,
+        \\    name VARCHAR(255) NOT NULL,
+        \\    isActive BOOLEAN NOT NULL DEFAULT TRUE,
+        \\    created TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        \\);
+    ;
+    const res = p.executeQuery(query, .{});
+    if (res) |value| {
+        std.debug.print("result: {} \n", .{value});
+        value.deinit();
+    } else |err| {
+        std.debug.print("err: {} \n", .{err});
+        std.debug.print("err: {s} \n", .{p.errorMessage()});
+        assert(false);
+    }
+    p.close();
+}
+
+test "insert into table" {
+    const p = try Connection.newConnection(std.testing.allocator, lib.testConfig);
+    _ = p.selectDB(dbname);
+    const query =
+        \\INSERT INTO test_user_table (name, isActive) 
+        \\VALUES ('John Doe', TRUE);
+    ;
+    const res = p.executeQuery(query, .{});
+    if (res) |value| {
+        std.debug.print("Inserted rows: {d} \n", .{value.affectedRows});
+        assert(value.affectedRows == 1);
+        value.deinit();
+    } else |err| {
+        std.debug.print("err: {} \n", .{err});
+        std.debug.print("err: {s} \n", .{p.errorMessage()});
+        assert(false);
+    }
+    p.close();
+}
+
+test "select from table" {
+    const p = try Connection.newConnection(std.testing.allocator, lib.testConfig);
+    _ = p.selectDB(dbname);
+    const query =
+        \\select name, isActive from test_user_table;
+    ;
+    const res = p.executeQuery(query, .{});
+    if (res) |value| {
+        std.debug.print("result: {} \n", .{value});
+        const name = value.firstSet.?.firstRow.?.columns.?.get(0).?;
+        const isactive = value.firstSet.?.firstRow.?.columns.?.get(1).?;
+        assert(std.mem.eql(u8, name, "John Doe"));
+        assert(std.mem.eql(u8, isactive, "1"));
+        value.deinit();
+    } else |err| {
+        std.debug.print("err: {} \n", .{err});
+        std.debug.print("err: {s} \n", .{p.errorMessage()});
+        assert(false);
     }
     p.close();
 }

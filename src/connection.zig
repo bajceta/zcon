@@ -222,6 +222,7 @@ test "create table" {
         \\CREATE TABLE IF NOT EXISTS test_user_table (
         \\    id INT AUTO_INCREMENT PRIMARY KEY,
         \\    name VARCHAR(255) NOT NULL,
+        \\    lastname VARCHAR(255),
         \\    isActive BOOLEAN NOT NULL DEFAULT TRUE,
         \\    created TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         \\);
@@ -242,8 +243,8 @@ test "insert into table" {
     const p = try Connection.newConnection(std.testing.allocator, lib.testConfig);
     _ = p.selectDB(dbname);
     const query =
-        \\INSERT INTO test_user_table (name, isActive) 
-        \\VALUES ('John Doe', TRUE);
+        \\INSERT INTO test_user_table (name, lastname, isActive) 
+        \\VALUES ('John Doe', NULL, TRUE);
     ;
     const res = p.executeQuery(query, .{});
     if (res) |value| {
@@ -262,14 +263,16 @@ test "select from table" {
     const p = try Connection.newConnection(std.testing.allocator, lib.testConfig);
     _ = p.selectDB(dbname);
     const query =
-        \\select name, isActive from test_user_table;
+        \\select name, lastname, isActive from test_user_table;
     ;
     const res = p.executeQuery(query, .{});
     if (res) |value| {
         std.debug.print("result: {} \n", .{value});
         const name = value.firstSet.?.firstRow.?.columns.?.get(0).?;
-        const isactive = value.firstSet.?.firstRow.?.columns.?.get(1).?;
+        const lastname = value.firstSet.?.firstRow.?.columns.?.get(1);
+        const isactive = value.firstSet.?.firstRow.?.columns.?.get(2).?;
         assert(std.mem.eql(u8, name, "John Doe"));
+        assert(lastname == null);
         assert(std.mem.eql(u8, isactive, "1"));
         value.deinit();
     } else |err| {

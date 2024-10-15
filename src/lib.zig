@@ -373,8 +373,6 @@ pub fn fetchResults2(allocator: Allocator, mysql: *c.MYSQL, query: [*c]const u8)
                     for (0..numFields) |i| {
                         if (row[i] != null) {
                             try rw.columns.?.initAndSetBuffer(row[i][0..lengths[i]], i);
-                        } else {
-                            try rw.columns.?.initAndSetBuffer("", i);
                         }
                     }
 

@@ -15,6 +15,8 @@ pub fn build(b: *std.Build) void {
         lib.linkSystemLibrary(l);
     }
 
+    module.linkLibrary(lib);
+
     b.installArtifact(lib);
 
     const main_tests = b.addTest(.{

@@ -5,6 +5,7 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
     const module = b.addModule("zconn", .{
         .root_source_file = b.path("src/root.zig"),
+        .target = target,
     });
 
     const lib = b.addStaticLibrary(.{ .name = "zconn", .root_source_file = b.path("src/root.zig"), .optimize = optimize, .target = target });
@@ -13,9 +14,8 @@ pub fn build(b: *std.Build) void {
     lib.linkLibC();
     for (libs_to_link) |l| {
         lib.linkSystemLibrary(l);
+        module.linkSystemLibrary(l, .{});
     }
-
-    module.linkLibrary(lib);
 
     b.installArtifact(lib);
 

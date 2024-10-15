@@ -42,6 +42,4 @@ pub fn build(b: *std.Build) void {
 
     //short.root_module.addImport("zconn", module);
     b.installArtifact(short);
-
-    _ = module;
 }
